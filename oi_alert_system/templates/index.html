@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OI Alert System — Control Panel</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+    <!-- ── HEADER ─────────────────────────────────────── -->
+    <div class="header">
+        <h1>⚡ OI Alert System</h1>
+        <div class="header-time" id="live-time">--:--:--</div>
+    </div>
+
+    <!-- ── STATUS BAR ─────────────────────────────────── -->
+    <div class="status-bar">
+
+        <div class="status-card">
+            <div class="status-label">Monitor</div>
+            <div class="status-value" id="monitor-status">
+                {% if monitor_running %}
+                <span class="dot green"></span> Running
+                {% else %}
+                <span class="dot red"></span> Stopped
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="status-card">
+            <div class="status-label">Market</div>
+            <div class="status-value" id="market-status">
+                <span class="dot {% if market_status == 'open' %}green{% else %}red{% endif %}"></span>
+                {{ market_msg }}
+            </div>
+        </div>
+
+        <div class="status-card">
+            <div class="status-label">Token</div>
+            <div class="status-value" id="token-status">
+                {% if token_valid %}
+                <span class="dot green"></span> Valid
+                {% else %}
+                <span class="dot red"></span> Expired
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="status-card">
+            <div class="status-label">Alerts Today</div>
+            <div class="status-value alert-count" id="alert-count">
+                {{ alert_count }}
+            </div>
+        </div>
+
+    </div>
+
+    <div class="main-grid">
+
+        <!-- ── LEFT COLUMN ──────────────────────────────── -->
+        <div class="left-col">
+
+            <!-- TOKEN SECTION -->
+            <div class="card">
+                <div class="card-title">🔑 Daily Token Update</div>
+
+                <div class="token-meta">
+                    <span>Current: <code id="masked-token">{{ masked_token }}</code></span>
+                    <span>Updated: <span id="last-updated">{{ last_token_update }}</span></span>
+                </div>
+
+                <textarea id="token-input" placeholder="Paste your Dhan access token here..." rows="3"></textarea>
+
+                <input type="password" id="pin-input" placeholder="Enter PIN" maxlength="6" />
+
+                <div class="btn-row">
+                    <button class="btn btn-primary" onclick="saveToken()">
+                        Save Token
+                    </button>
+                    <button class="btn btn-secondary" onclick="renewToken()">
+                        Renew Token
+                    </button>
+                    <button class="btn btn-ghost" onclick="validateToken()">
+                        Validate
+                    </button>
+                </div>
+
+                <div class="msg" id="token-msg"></div>
+            </div>
+
+            <!-- SETTINGS SECTION -->
+            <div class="card">
+                <div class="card-title">⚙️ Alert Settings</div>
+
+                <div class="setting-row">
+                    <label>OI Spike — 3 Second (%)</label>
+                    <input type="number" id="oi-3sec" value="{{ settings.thresholds.oi_3sec_pct }}" min="50"
+                        max="5000" />
+                </div>
+
+                <div class="setting-row">
+                    <label>OI Spike — Day Open (%)</label>
+                    <input type="number" id="oi-day" value="{{ settings.thresholds.oi_day_pct }}" min="100"
+                        max="10000" />
+                </div>
+
+                <div class="setting-row">
+                    <label>ITM Depth (strikes each side)</label>
+                    <input type="number" id="itm-depth" value="{{ settings.strike_filter.itm_depth }}" min="1"
+                        max="10" />
+                </div>
+
+                <div class="setting-row">
+                    <label>Cooldown (minutes)</label>
+                    <input type="number" id="cooldown" value="{{ settings.thresholds.cooldown_minutes }}" min="1"
+                        max="60" />
+                </div>
+
+                <button class="btn btn-primary" onclick="saveSettings()">
+                    Save Settings
+                </button>
+                <div class="msg" id="settings-msg"></div>
+            </div>
+
+            <!-- UNDERLYING SECTION -->
+            <div class="card">
+                <div class="card-title">📈 Underlyings to Monitor</div>
+
+                <div class="checkbox-grid">
+                    {% for u in all_underlyings %}
+                    <label class="checkbox-item">
+                        <input type="checkbox" name="underlying" value="{{ u.name }}" {% if u in settings.underlyings
+                            %}checked{% endif %} />
+                        {{ u.name }}
+                    </label>
+                    {% endfor %}
+                </div>
+
+                <button class="btn btn-primary" onclick="saveUnderlyings()">
+                    Save Underlyings
+                </button>
+                <div class="msg" id="underlying-msg"></div>
+            </div>
+
+            <!-- EXPIRY SECTION -->
+            <div class="card">
+                <div class="card-title">📅 Expiry Selection</div>
+                <div id="expiry-container">
+                    <p class="muted">Select underlyings above and click Load Expiries</p>
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-secondary" onclick="loadExpiries()">
+                        Load Expiries
+                    </button>
+                    <button class="btn btn-primary" onclick="saveExpiries()">
+                        Save Expiries
+                    </button>
+                </div>
+                <div class="msg" id="expiry-msg"></div>
+            </div>
+
+        </div>
+
+        <!-- ── RIGHT COLUMN ─────────────────────────────── -->
+        <div class="right-col">
+
+            <!-- STRIKE PREVIEW -->
+            <div class="card">
+                <div class="card-title">🎯 Strike Preview (Live)</div>
+                <div id="strike-preview">
+                    <p class="muted">Loads during market hours</p>
+                </div>
+            </div>
+
+            <!-- MARKET SNAPSHOT -->
+            <div class="card">
+                <div class="card-title">
+                    📊 Live Market Snapshot
+                    <span class="muted" id="snapshot-time" style="font-size:11px; margin-left:8px"></span>
+                </div>
+
+                <div id="snapshot-container">
+                    <p class="muted">Updates every 30 minutes during market hours</p>
+                </div>
+            </div>
+
+            <!-- ALERTS TABLE -->
+            <div class="card">
+                <div class="card-title">
+                    🔔 Today's Alerts
+                    <span class="badge" id="alert-badge">{{ alert_count }}</span>
+                </div>
+
+                {% if today_alerts %}
+                <div class="table-wrap">
+                    <table id="alerts-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Strike</th>
+                                <th>Type</th>
+                                <th>Label</th>
+                                <th>OI Chg 3s</th>
+                                <th>OI Chg Day</th>
+                                <th>LTP</th>
+                            </tr>
+                        </thead>
+                        <tbody id="alerts-tbody">
+                            {% for a in today_alerts %}
+                            <tr>
+                                <td>{{ a.Time }}</td>
+                                <td><strong>{{ a.Strike }}</strong></td>
+                                <td>
+                                    <span class="badge-type {{ a.Type | lower }}">
+                                        {{ a.Type }}
+                                    </span>
+                                </td>
+                                <td>{{ a.Label }}</td>
+                                <td class="chg {% if a['OI Chg 3sec %']|float > 0 %}up{% endif %}">
+                                    +{{ a['OI Chg 3sec %'] }}%
+                                </td>
+                                <td class="chg {% if a['OI Chg Day %']|float > 0 %}up{% endif %}">
+                                    +{{ a['OI Chg Day %'] }}%
+                                </td>
+                                <td>₹{{ a.LTP }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="no-alerts" id="no-alerts-msg">
+                    No alerts fired today yet
+                </div>
+                {% endif %}
+
+            </div>
+
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

@@ -18,6 +18,7 @@ from core.dhan_client   import get_option_chain, get_expiry_list, validate_token
 from core.snapshot      import take_day_snapshot, load_day_snapshot, snapshot_exists_today
 from core.oi_engine     import process_option_chain
 from core.alert_manager import fire_alert, send_telegram_text
+from core.market_snapshot import scan_full_chain, save_snapshot, format_snapshot_telegram
 
 # setting file
 SETTINGS_FILE=os.path.join(os.path.dirname(__file__),"data","settings.json")
@@ -55,7 +56,7 @@ def load_settings():
         },
         "thresholds": {
             "oi_3sec_pct"     : 500,
-            "oi_day_pct"      : 1000,
+            "oi_day_pct"      : 500,
             "cooldown_minutes": 5
         }
     }
@@ -142,6 +143,7 @@ def run_monitoring_loop():
     cycle_count   = 0
     alert_count   = 0
     snapshot_taken = False
+    last_snapshot_time = None
 
     while True:
         if not is_market_open():
@@ -200,6 +202,11 @@ def run_monitoring_loop():
                 log(f"Failed to fetch {u['name']} chain : {chain}")
                 continue
             
+            # Scan for gamma and volume context
+            snapshot_data = scan_full_chain(chain, u["name"], expiry)
+            top_gamma     = snapshot_data.get("top_gamma")
+            top_volume    = snapshot_data.get("top_volume")
+
             alerts=process_option_chain(
                 chain_data=chain,
                 underlying_name=u["name"],
@@ -208,9 +215,33 @@ def run_monitoring_loop():
             )
             
             for alert in alerts:
-                fire_alert(alert)
+                fire_alert(alert, top_gamma, top_volume)
                 alert_count +=1
                 cycle_alerts +=1
+
+        # ── Send snapshot every 30 minutes ────────────────────
+        ist = pytz.timezone(config.TIMEZONE)
+        now = datetime.now(ist)
+
+        if last_snapshot_time is None or (now - last_snapshot_time).seconds >= 1800:
+            for u in underlyings:
+                expiry = get_active_expiry(u["name"], settings)
+                if not expiry:
+                    continue
+
+                ok, chain = get_option_chain(u["scrip"], u["seg"], expiry)
+                if not ok:
+                    continue
+
+                result = scan_full_chain(chain, u["name"], expiry)
+                if result:
+                    save_snapshot(result)
+                    msg = format_snapshot_telegram(result)
+                    if msg:
+                        send_telegram_text(msg)
+                        log(f"Snapshot sent for {u['name']}")
+
+            last_snapshot_time = now
 
         if cycle_count % 100 ==0:
             ist = pytz.timezone(config.TIMEZONE)

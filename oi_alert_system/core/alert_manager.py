@@ -66,22 +66,18 @@ def play_beep():
 
 # TELEGRAM ALERT
 
-def format_telegram_message(alert):
-
+def format_telegram_message(alert, top_gamma=None, top_volume=None):
     ist=pytz.timezone(config.TIMEZONE)
     now=datetime.now(ist).strftime("%d %b %Y %H:%M:%S")
 
-    
     # format OI numbers
-
     current_oi=f"{alert['current_oi']:,}"
     prev_oi=f"{alert['prev_oi']:,}"
-    day_open_oi=f"{alert['day_open_oi']:,}" if alert['day_open_oi'] else "N/A"
+    day_open_oi=f"{alert['day_open_oi']:,}" if alert['day_open_oi'] and alert['day_open_oi'] > 0 else "N/A"
 
     # Format OI change percentage
-
-    chg_3sec=f"{alert['chg_3sec_pct']:.2f}%" if alert['chg_3sec_pct'] >=0 else "N/A"
-    chg_day=f"{alert['chg_day_pct']:.2f}%" if alert['chg_day_pct'] >=0 else "N/A"
+    chg_3sec = f"+{alert['chg_3sec_pct']:.1f}%" if alert['chg_3sec_pct'] >= 0 else f"{alert['chg_3sec_pct']:.1f}%"
+    chg_day  = f"+{alert['chg_day_pct']:.1f}%"  if alert['chg_day_pct'] >= 0  else f"{alert['chg_day_pct']:.1f}%"
 
     message = (
         f"⚠️ *OI SPIKE ALERT*\n"
@@ -101,13 +97,31 @@ def format_telegram_message(alert):
         f"IV         : {alert['iv']}%\n"
         f"Spot       : {alert['spot_price']}\n"
         f"ATM        : {alert['atm']}\n"
-        f"{'─' * 28}\n"
-        f"🕐 {now}"
     )
+
+    # ── Add gamma and volume context if available ─────────────
+    if top_gamma or top_volume:
+        message += f"{'─' * 28}\n"
+        message += f"📊 *Market Context*\n"
+
+        if top_gamma:
+            message += (
+                f"Highest Gamma  : {top_gamma['strike']} {top_gamma['option_type']} "
+                f"| γ {top_gamma.get('gamma', 0):.4f}\n"
+            )
+
+        if top_volume:
+            message += (
+                f"Highest Volume : {top_volume['strike']} {top_volume['option_type']} "
+                f"| {top_volume.get('volume', 0):,} lots\n"
+            )
+
+    message += f"{'─' * 28}\n"
+    message += f"🕐 {now}"
 
     return message
 
-def send_telegram(alert):
+def send_telegram(alert, top_gamma=None, top_volume=None):
     import importlib
     importlib.reload(config)
 
@@ -122,7 +136,7 @@ def send_telegram(alert):
         print("[Telegram] Chat ID not configured — skipping")
         return False
     
-    message=format_telegram_message(alert)
+    message=format_telegram_message(alert, top_gamma, top_volume)
 
     try:
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -200,7 +214,7 @@ def log_to_csv(alert):
 
 # MAIN will be called for every alert
 
-def fire_alert(alert):
+def fire_alert(alert, top_gamma=None, top_volume=None):
 
     ist = pytz.timezone(config.TIMEZONE)
     now = datetime.now(ist).strftime("%H:%M:%S")
@@ -215,7 +229,7 @@ def fire_alert(alert):
 
     play_beep()
 
-    tg_success=send_telegram(alert)
+    tg_success=send_telegram(alert, top_gamma, top_volume)
 
     if tg_success:
         print(f"[Telegram] Alert sent successfully")
@@ -287,8 +301,9 @@ if __name__ == "__main__":
     print("    Message preview:")
     preview = format_telegram_message(fake_alert)
     print(preview.encode(sys.stdout.encoding or 'utf-8', errors='replace').decode(sys.stdout.encoding or 'utf-8'))
-    result = send_telegram(fake_alert)
-    print(f"    Sent: {result}")
+    # Removed direct send to prevent duplicate Telegram alerts during testing
+    # result = send_telegram(fake_alert)
+    # print(f"    Sent: {result}")
 
     print("\n[3] Testing CSV log...")
     log_to_csv(fake_alert)

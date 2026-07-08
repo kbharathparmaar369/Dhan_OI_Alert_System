@@ -35,7 +35,7 @@ DEFAULT_SETTINGS = {
     },
     "thresholds": {
         "oi_3sec_pct"     : 500,
-        "oi_day_pct"      : 1000,
+        "oi_day_pct"      : 500,
         "cooldown_minutes": 5
     }
 }
@@ -219,9 +219,10 @@ def process_option_chain(chain_data, underlying_name, expiry, day_snapshot):
         previous_oi = prev_oi.get(prev_key, current_oi)
         chg_3sec    = calculate_oi_change_pct(current_oi, previous_oi)
 
-        # ── Calculate day open OI change ──────────────────────
-        day_open_oi = get_day_open_oi(day_snapshot, chain_key, strike_str, option_type)
-        chg_day     = calculate_oi_change_pct(current_oi, day_open_oi) if day_open_oi > 0 else 0
+        # ── Calculate day open OI change vs previous day close ──
+        previous_day_oi = opt_data.get("previous_oi", 0)
+        day_open_oi     = previous_day_oi if previous_day_oi > 0 else get_day_open_oi(day_snapshot, chain_key, strike_str, option_type)
+        chg_day         = calculate_oi_change_pct(current_oi, day_open_oi) if day_open_oi > 0 else 0
 
         # ── Update previous OI for next cycle ─────────────────
         prev_oi[prev_key] = current_oi
